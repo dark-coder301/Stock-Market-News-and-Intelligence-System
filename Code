@@ -12,10 +12,10 @@ import os
 # --- Constants ---
 STOCK_ENDPOINT = "https://www.alphavantage.co/query"
 NEWS_ENDPOINT = "https://newsapi.org/v2/everything"
-STOCK_API_KEY = "1Y95K9A1720IP0SU"
+STOCK_API_KEY = YOUR_STOCK_API_KEY
 NEWS_API_KEY = "97a615aacaef4a2599a5241927a1831d"
-ACCOUNT_SID = "AC20e194597ca5c0166f162b60c00a7cc9"
-AUTH_TOKEN = "2e14872b5e7672007c4d0a73edac4a6b"
+ACCOUNT_SID = YOUR_ACCOUNT_SID
+AUTH_TOKEN = YOUR_AUTH_TOKEN
 FROM_PHONE = "+18624185428"
 DB_NAME = "stock_alerts.db"
 IMG_PATH = "stock_trend_plot.png"
