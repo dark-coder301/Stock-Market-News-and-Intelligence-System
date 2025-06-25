@@ -1,0 +1,156 @@
+# Smart Stock Alert System with GUI, Graph, SMS, and SQLite Logging
+import requests
+from twilio.rest import Client
+from datetime import datetime
+import sqlite3
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import ttk, messagebox
+from PIL import Image, ImageTk
+import os
+
+# --- Constants ---
+STOCK_ENDPOINT = "https://www.alphavantage.co/query"
+NEWS_ENDPOINT = "https://newsapi.org/v2/everything"
+STOCK_API_KEY = "1Y95K9A1720IP0SU"
+NEWS_API_KEY = "97a615aacaef4a2599a5241927a1831d"
+ACCOUNT_SID = "AC20e194597ca5c0166f162b60c00a7cc9"
+AUTH_TOKEN = "2e14872b5e7672007c4d0a73edac4a6b"
+FROM_PHONE = "+18624185428"
+DB_NAME = "stock_alerts.db"
+IMG_PATH = "stock_trend_plot.png"
+
+# --- Helper Functions ---
+def fetch_stock_data(symbol):
+    params = {
+        "function": "TIME_SERIES_DAILY",
+        "symbol": symbol,
+        "apikey": STOCK_API_KEY,
+    }
+    res = requests.get(STOCK_ENDPOINT, params=params)
+    return res.json().get("Time Series (Daily)", {})
+
+def fetch_news(company):
+    params = {
+        "apiKey": NEWS_API_KEY,
+        "qInTitle": company,
+        "language": "en",
+        "sortBy": "publishedAt"
+    }
+    res = requests.get(NEWS_ENDPOINT, params=params)
+    return res.json().get("articles", [])[:3]
+
+def send_sms(body, to_phone):
+    client = Client(ACCOUNT_SID, AUTH_TOKEN)
+    message = client.messages.create(
+        body=body,
+        from_=FROM_PHONE,
+        to=to_phone
+    )
+    return message.status
+
+
+
+def plot_stock_trend(stock_data, symbol):
+    dates = sorted(stock_data.keys(), reverse=True)[:7]
+    dates.reverse()
+    prices = [float(stock_data[date]["4. close"]) for date in dates]
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(dates, prices, marker='o', color='royalblue')
+    plt.title(f"{symbol} - Last 7 Days Closing Prices")
+    plt.xlabel("Date")
+    plt.ylabel("Closing Price (USD)")
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(IMG_PATH)
+    plt.close()
+
+# --- GUI ---
+def create_gui():
+    root = tk.Tk()
+    root.title("📈 Smart Stock Alert System")
+    root.geometry("720x550")
+    root.configure(bg="#f0f0f5")
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(expand=True, fill='both')
+
+    tab1 = ttk.Frame(notebook)
+    tab2 = ttk.Frame(notebook)
+    notebook.add(tab1, text='🔧 Setup Alert')
+    notebook.add(tab2, text='📊 Stock Trend')
+
+    tk.Label(tab1, text="Stock Symbol:").grid(row=0, column=0, padx=10, pady=5, sticky='e')
+    stock_entry = tk.Entry(tab1)
+    stock_entry.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(tab1, text="Company Name:").grid(row=1, column=0, padx=10, pady=5, sticky='e')
+    company_entry = tk.Entry(tab1)
+    company_entry.grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(tab1, text="Threshold %:").grid(row=2, column=0, padx=10, pady=5, sticky='e')
+    threshold_entry = tk.Entry(tab1)
+    threshold_entry.insert(0, "5")
+    threshold_entry.grid(row=2, column=1, padx=10, pady=5)
+
+    tk.Label(tab1, text="Phone (+91...):").grid(row=3, column=0, padx=10, pady=5, sticky='e')
+    phone_entry = tk.Entry(tab1)
+    phone_entry.grid(row=3, column=1, padx=10, pady=5)
+
+    result_label = tk.Label(tab1, text="", fg="green")
+    result_label.grid(row=5, column=0, columnspan=2, pady=10)
+
+    canvas = tk.Canvas(tab2, width=680, height=400, bg='white')
+    canvas.pack(pady=20)
+
+    def trigger_alert():
+        symbol = stock_entry.get().upper()
+        company = company_entry.get()
+        try:
+            threshold = float(threshold_entry.get())
+        except:
+            messagebox.showerror("Input Error", "Threshold must be a number.")
+            return
+        phone = phone_entry.get()
+
+        data = fetch_stock_data(symbol)
+        if not data:
+            messagebox.showerror("Error", "Could not fetch stock data.")
+            return
+
+        sorted_dates = sorted(data.keys(), reverse=True)
+        y_close = float(data[sorted_dates[0]]["4. close"])
+        d_close = float(data[sorted_dates[1]]["4. close"])
+        diff = y_close - d_close
+        pct = abs(diff) / d_close * 100
+        direction = "🔻" if diff < 0 else "🔺"
+
+        if pct >= threshold:
+            articles = fetch_news(company)
+            plot_stock_trend(data, symbol)
+
+            for article in articles:
+                body = f"{symbol}: {direction}{round(pct,2)}%\nHeadline: {article['title']}\nBrief: {article['description']}"
+                send_sms(body, phone)
+                log_to_db(symbol, pct, direction, article)
+
+            result_label.config(text=f"✅ Alert sent for {symbol} ({round(pct,2)}%)")
+
+            if os.path.exists(IMG_PATH):
+                img = Image.open(IMG_PATH).resize((680, 400))
+                img_tk = ImageTk.PhotoImage(img)
+                canvas.create_image(0, 0, anchor=tk.NW, image=img_tk)
+                canvas.image = img_tk
+
+        else:
+            result_label.config(text=f"ℹ️ Change {round(pct,2)}% < Threshold")
+
+    trigger_btn = tk.Button(tab1, text="Trigger Alert 🚀", bg="#4CAF50", fg="white", font=("Arial", 10, "bold"), command=trigger_alert)
+    trigger_btn.grid(row=4, column=0, columnspan=2, pady=15)
+
+    root.mainloop()
+
+# Run the GUI
+create_gui()
